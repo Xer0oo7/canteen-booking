@@ -107,8 +107,10 @@
         <h3 class="text-xl font-semibold mb-4">Current Menu</h3>
         <div id="canteenDishList" class="grid grid-cols-1 md:grid-cols-3 gap-6"></div>
         <h3 class="text-xl font-semibold mt-8 mb-4">Pending Orders</h3>
+        <input id="pendingOrderSearch" type="text" placeholder="Search by student name" class="w-full p-2 mb-4 border rounded-lg" oninput="renderCanteenOrders()">
         <div id="canteenOrders" class="space-y-4"></div>
         <h3 class="text-xl font-semibold mt-8 mb-4">Delivered Orders</h3>
+        <input id="deliveredOrderSearch" type="text" placeholder="Search by student name" class="w-full p-2 mb-4 border rounded-lg" oninput="renderCanteenDeliveredOrders()">
         <div id="canteenDeliveredOrders" class="space-y-4"></div>
     </div>
 
@@ -312,9 +314,10 @@
         }
 
         function renderCanteenOrders() {
+            const searchQuery = document.getElementById('pendingOrderSearch').value.toLowerCase();
             const orderList = document.getElementById('canteenOrders');
             orderList.innerHTML = orders
-                .filter(order => order.status === 'Pending')
+                .filter(order => order.status === 'Pending' && order.student.toLowerCase().includes(searchQuery))
                 .map(order => {
                     const dish = dishes.find(d => d.id === order.dishId);
                     return dish ? `
@@ -331,9 +334,10 @@
         }
 
         function renderCanteenDeliveredOrders() {
+            const searchQuery = document.getElementById('deliveredOrderSearch').value.toLowerCase();
             const orderList = document.getElementById('canteenDeliveredOrders');
             orderList.innerHTML = orders
-                .filter(order => order.status === 'Delivered')
+                .filter(order => order.status === 'Delivered' && order.student.toLowerCase().includes(searchQuery))
                 .map(order => {
                     const dish = dishes.find(d => d.id === order.dishId);
                     return dish ? `
@@ -346,10 +350,6 @@
                         </div>
                     ` : '';
                 }).join('');
-        }
-    </script>
-</body>
-</html>
         }
     </script>
 </body>
