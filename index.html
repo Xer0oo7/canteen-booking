@@ -1,0 +1,277 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Canteen Booking System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .btn {
+            transition: all 0.3s ease;
+            transform: perspective(1px) translateZ(0);
+        }
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        }
+        .modal {
+            transition: opacity 0.3s ease;
+        }
+        .dish-card {
+            transition: transform 0.3s ease;
+        }
+        .dish-card:hover {
+            transform: scale(1.05);
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen font-sans">
+    <!-- Login Section -->
+    <div id="loginSection" class="flex items-center justify-center min-h-screen bg-gradient-to-r from-blue-500 to-purple-600">
+        <div class="bg-white p-8 rounded-lg shadow-lg w-full max-w-md">
+            <h2 class="text-2xl font-bold text-center mb-6">Canteen Booking System</h2>
+            <div class="space-y-4">
+                <button onclick="showLogin('student')" class="btn w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700">Student Login</button>
+                <button onclick="showLogin('canteen')" class="btn w-full bg-green-600 text-white py-2 rounded-lg hover:bg-green-700">Canteen Login</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Student Login Modal -->
+    <div id="studentLoginModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden modal">
+        <div class="bg-white p-6 rounded-lg shadow-lg w-full max-w-sm">
+            <h3 class="text-xl font-semibold mb-4">Student Login</h3>
+            <input id="studentUsername" type="text" placeholder="Username" class="w-full p-2 mb-4 border rounded-lg">
+            <input id="studentPassword" type="password" placeholder="Password" class="w-full p-2 mb-4 border rounded-lg">
+            <button onclick="studentLogin()" class="btn w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700">Login</button>
+            <button onclick="closeModal('studentLoginModal')" class="btn w-full bg-gray-300 text-gray-700 py-2 rounded-lg mt-2 hover:bg-gray-400">Cancel</button>
+        </div>
+    </div>
+
+    <!-- Canteen Login Modal -->
+    <div id="canteenLoginModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden modal">
+        <div class="bg-white p-6 rounded-lg shadow-lg w-full max-w-sm">
+            <h3 class="text-xl font-semibold mb-4">Canteen Login</h3>
+            <input id="canteenUsername" type="text" placeholder="Username" class="w-full p-2 mb-4 border rounded-lg">
+            <input id="canteenPassword" type="password" placeholder="Password" class="w-full p-2 mb-4 border rounded-lg">
+            <button onclick="canteenLogin()" class="btn w-full bg-green-600 text-white py-2 rounded-lg hover:bg-green-700">Login</button>
+            <button onclick="closeModal('canteenLoginModal')" class="btn w-full bg-gray-300 text-gray-700 py-2 rounded-lg mt-2 hover:bg-gray-400">Cancel</button>
+        </div>
+    </div>
+
+    <!-- Student Dashboard -->
+    <div id="studentDashboard" class="hidden p-6">
+        <div class="flex justify-between items-center mb-6">
+            <h2 class="text-3xl font-bold">Welcome, <span id="studentName"></span></h2>
+            <button onclick="logout()" class="btn bg-red-600 text-white py-2 px-4 rounded-lg hover:bg-red-700">Logout</button>
+        </div>
+        <h3 class="text-xl font-semibold mb-4">Available Dishes</h3>
+        <div id="dishList" class="grid grid-cols-1 md:grid-cols-3 gap-6"></div>
+        <h3 class="text-xl font-semibold mt-8 mb-4">Your Orders</h3>
+        <div id="studentOrders" class="space-y-4"></div>
+    </div>
+
+    <!-- Canteen Dashboard -->
+    <div id="canteenDashboard" class="hidden p-6">
+        <div class="flex justify-between items-center mb-6">
+            <h2 class="text-3xl font-bold">Canteen Management</h2>
+            <button onclick="logout()" class="btn bg-red-600 text-white py-2 px-4 rounded-lg hover:bg-red-700">Logout</button>
+        </div>
+        <div class="bg-white p-6 rounded-lg shadow-lg mb-6">
+            <h3 class="text-xl font-semibold mb-4">Add New Dish</h3>
+            <input id="dishName" type="text" placeholder="Dish Name" class="w-full p-2 mb-4 border rounded-lg">
+            <input id="dishPrice" type="number" placeholder="Price" class="w-full p-2 mb-4 border rounded-lg">
+            <button onclick="addDish()" class="btn bg-green-600 text-white py-2 px-4 rounded-lg hover:bg-green-700">Add Dish</button>
+        </div>
+        <h3 class="text-xl font-semibold mb-4">Current Menu</h3>
+        <div id="canteenDishList" class="grid grid-cols-1 md:grid-cols-3 gap-6"></div>
+        <h3 class="text-xl font-semibold mt-8 mb-4">Pending Orders</h3>
+        <div id="canteenOrders" class="space-y-4"></div>
+    </div>
+
+    <!-- Order Confirmation Popup -->
+    <div id="orderPopup" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden modal">
+        <div class="bg-white p-6 rounded-lg shadow-lg w-full max-w-sm">
+            <h3 class="text-xl font-semibold mb-4">Order Confirmation</h3>
+            <p id="popupMessage" class="mb-4"></p>
+            <button onclick="closeModal('orderPopup')" class="btn w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700">Close</button>
+        </div>
+    </div>
+
+    <script>
+        let currentUser = null;
+        let dishes = [];
+        let orders = [];
+
+        function showLogin(type) {
+            document.getElementById(`${type}LoginModal`).classList.remove('hidden');
+        }
+
+        function closeModal(modalId) {
+            document.getElementById(modalId).classList.add('hidden');
+        }
+
+        function studentLogin() {
+            const username = document.getElementById('studentUsername').value;
+            const password = document.getElementById('studentPassword').value;
+            if (username && password) {
+                currentUser = { type: 'student', name: username };
+                document.getElementById('loginSection').classList.add('hidden');
+                document.getElementById('studentDashboard').classList.remove('hidden');
+                document.getElementById('studentName').textContent = username;
+                closeModal('studentLoginModal');
+                renderDishes();
+                renderStudentOrders();
+            } else {
+                alert('Please enter username and password');
+            }
+        }
+
+        function canteenLogin() {
+            const username = document.getElementById('canteenUsername').value;
+            const password = document.getElementById('canteenPassword').value;
+            if (username && password) {
+                currentUser = { type: 'canteen', name: username };
+                document.getElementById('loginSection').classList.add('hidden');
+                document.getElementById('canteenDashboard').classList.remove('hidden');
+                closeModal('canteenLoginModal');
+                renderCanteenDishes();
+                renderCanteenOrders();
+            } else {
+                alert('Please enter username and password');
+            }
+        }
+
+        function logout() {
+            currentUser = null;
+            document.getElementById('studentDashboard').classList.add('hidden');
+            document.getElementById('canteenDashboard').classList.add('hidden');
+            document.getElementById('loginSection').classList.remove('hidden');
+        }
+
+        function addDish() {
+            const name = document.getElementById('dishName').value;
+            const price = parseFloat(document.getElementById('dishPrice').value);
+            if (name && price) {
+                dishes.push({ id: Date.now(), name, price });
+                document.getElementById('dishName').value = '';
+                document.getElementById('dishPrice').value = '';
+                renderCanteenDishes();
+                renderDishes();
+            } else {
+                alert('Please enter dish name and price');
+            }
+        }
+
+        function removeDish(id) {
+            dishes = dishes.filter(dish => dish.id !== id);
+            renderCanteenDishes();
+            renderDishes();
+        }
+
+        function orderDish(dishId) {
+            const dish = dishes.find(d => d.id === dishId);
+            const orderId = `ORD${Date.now()}`;
+            orders.push({ id: orderId, dishId, student: currentUser.name, status: 'Pending' });
+            const popup = document.getElementById('orderPopup');
+            document.getElementById('popupMessage').textContent = `Order placed! Reference ID: ${orderId}`;
+            popup.classList.remove('hidden');
+            renderStudentOrders();
+            renderCanteenOrders();
+        }
+
+        function renderDishes() {
+            const dishList = document.getElementById('dishList');
+            dishList.innerHTML = dishes.map(dish => `
+                <div class="dish-card bg-white p-4 rounded-lg shadow-lg">
+                    <h4 class="text-lg font-semibold">${dish.name}</h4>
+                    <p class="text-gray-600">$${dish.price.toFixed(2)}</p>
+                    <button onclick="orderDish(${dish.id})" class="btn mt-2 bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700">Order</button>
+                </div>
+            `).join('');
+        }
+
+        function renderCanteenDishes() {
+            const dishList = document.getElementById('canteenDishList');
+            dishList.innerHTML = dishes.map(dish => `
+                <div class="dish-card bg-white p-4 rounded-lg shadow-lg">
+                    <h4 class="text-lg font-semibold">${dish.name}</h4>
+                    <p class="text-gray-600">$${dish.price.toFixed(2)}</p>
+                    <button onclick="removeDish(${dish.id})" class="btn mt-2 bg-red-600 text-white py-2 px-4 rounded-lg hover:bg-red-700">Remove</button>
+                </div>
+            `).join('');
+        }
+
+        function renderStudentOrders() {
+            const orderList = document.getElementById('studentOrders');
+            orderList.innerHTML = orders
+                .filter(order => order.student === currentUser.name)
+                .map(order => {
+                    const dish = dishes.find(d => d.id === order.dishId);
+                    return dish ? `
+                        <div class="bg-white p-4 rounded-lg shadow-lg">
+                            <p><strong>Order ID:</strong> ${order.id}</p>
+                            <p><strong>Dish:</strong> ${dish.name}</p>
+                            <p><strong>Price:</strong> $${dish.price.toFixed(2)}</p>
+                            <p><strong>Status:</strong> ${order.status}</p>
+                        </div>
+                    ` : '';
+                }).join('');
+        }
+
+        function renderCanteenOrders() {
+            const orderList = document.getElementById('canteenOrders');
+            orderList.innerHTML = orders.map(order => {
+                const dish = dishes.find(d => d.id === order.dishId);
+                return dish ? `
+                    <div class="bg-white p-4 rounded-lg shadow-lg">
+                        <p><strong>Order ID:</strong> ${order.id}</p>
+                        <p><strong>Dish:</strong> ${dish.name}</p>
+                        <p><strong>Student:</strong> ${order.student}</p>
+                        <p><strong>Status:</strong> ${order.status}</p>
+                    </div>
+                ` : '';
+            }).join('');
+        }
+    </script>
+</body>
+</html>
