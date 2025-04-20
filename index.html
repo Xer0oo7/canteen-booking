@@ -1,43 +1,4 @@
-<script type="text/javascript">
-        var gk_isXlsx = false;
-        var gk_xlsxFileLookup = {};
-        var gk_fileData = {};
-        function filledCell(cell) {
-          return cell !== '' && cell != null;
-        }
-        function loadFileData(filename) {
-        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
-            try {
-                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
-                var firstSheetName = workbook.SheetNames[0];
-                var worksheet = workbook.Sheets[firstSheetName];
-
-                // Convert sheet to JSON to filter blank rows
-                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
-                // Filter out blank rows (rows where all cells are empty, null, or undefined)
-                var filteredData = jsonData.filter(row => row.some(filledCell));
-
-                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
-                var headerRowIndex = filteredData.findIndex((row, index) =>
-                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
-                );
-                // Fallback
-                if (headerRowIndex === -1 || headerRowIndex > 25) {
-                  headerRowIndex = 0;
-                }
-
-                // Convert filtered JSON back to CSV
-                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
-                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
-                return csv;
-            } catch (e) {
-                console.error(e);
-                return "";
-            }
-        }
-        return gk_fileData[filename] || "";
-        }
-        </script><!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -98,6 +59,25 @@
         </div>
     </div>
 
+    <!-- Payment Simulator Modal -->
+    <div id="paymentModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden modal">
+        <div class="bg-white p-6 rounded-lg shadow-lg w-full max-w-md">
+            <h3 class="text-xl font-semibold mb-4">Payment Simulator</h3>
+            <p id="paymentDishInfo" class="mb-4"></p>
+            <div class="space-y-4">
+                <button onclick="selectPaymentMethod('online')" class="btn w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700">Pay Online</button>
+                <button onclick="selectPaymentMethod('cod')" class="btn w-full bg-green-600 text-white py-2 rounded-lg hover:bg-green-700">Pay on Delivery</button>
+            </div>
+            <div id="onlinePaymentForm" class="hidden mt-4">
+                <input id="cardNumber" type="text" placeholder="Card Number" class="w-full p-2 mb-4 border rounded-lg">
+                <input id="expiryDate" type="date" placeholder="Expiry Date" class="w-full p-2 mb-4 border rounded-lg">
+                <input id="cvv" type="password" placeholder="CVV" class="w-full p-2 mb-4 border rounded-lg">
+                <button onclick="processOnlinePayment()" class="btn w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700">Pay Now</button>
+            </div>
+            <button onclick="closeModal('paymentModal')" class="btn w-full bg-gray-300 text-gray-700 py-2 rounded-lg mt-4 hover:bg-gray-400">Cancel</button>
+        </div>
+    </div>
+
     <!-- Student Dashboard -->
     <div id="studentDashboard" class="hidden p-6">
         <div class="flex justify-between items-center mb-6">
@@ -108,6 +88,8 @@
         <div id="dishList" class="grid grid-cols-1 md:grid-cols-3 gap-6"></div>
         <h3 class="text-xl font-semibold mt-8 mb-4">Your Orders</h3>
         <div id="studentOrders" class="space-y-4"></div>
+        <h3 class="text-xl font-semibold mt-8 mb-4">Delivered Orders</h3>
+        <div id="studentDeliveredOrders" class="space-y-4"></div>
     </div>
 
     <!-- Canteen Dashboard -->
@@ -119,13 +101,15 @@
         <div class="bg-white p-6 rounded-lg shadow-lg mb-6">
             <h3 class="text-xl font-semibold mb-4">Add New Dish</h3>
             <input id="dishName" type="text" placeholder="Dish Name" class="w-full p-2 mb-4 border rounded-lg">
-            <input id="dishPrice" type="number" placeholder="Price" class="w-full p-2 mb-4 border rounded-lg">
+            <input id="dishPrice" type="number" placeholder="Price (₹)" class="w-full p-2 mb-4 border rounded-lg">
             <button onclick="addDish()" class="btn bg-green-600 text-white py-2 px-4 rounded-lg hover:bg-green-700">Add Dish</button>
         </div>
         <h3 class="text-xl font-semibold mb-4">Current Menu</h3>
         <div id="canteenDishList" class="grid grid-cols-1 md:grid-cols-3 gap-6"></div>
         <h3 class="text-xl font-semibold mt-8 mb-4">Pending Orders</h3>
         <div id="canteenOrders" class="space-y-4"></div>
+        <h3 class="text-xl font-semibold mt-8 mb-4">Delivered Orders</h3>
+        <div id="canteenDeliveredOrders" class="space-y-4"></div>
     </div>
 
     <!-- Order Confirmation Popup -->
@@ -141,6 +125,7 @@
         let currentUser = null;
         let dishes = [];
         let orders = [];
+        let currentDishId = null;
 
         function showLogin(type) {
             document.getElementById(`${type}LoginModal`).classList.remove('hidden');
@@ -148,6 +133,9 @@
 
         function closeModal(modalId) {
             document.getElementById(modalId).classList.add('hidden');
+            if (modalId === 'paymentModal') {
+                document.getElementById('onlinePaymentForm').classList.add('hidden');
+            }
         }
 
         function studentLogin() {
@@ -161,6 +149,7 @@
                 closeModal('studentLoginModal');
                 renderDishes();
                 renderStudentOrders();
+                renderStudentDeliveredOrders();
             } else {
                 alert('Please enter username and password');
             }
@@ -176,6 +165,7 @@
                 closeModal('canteenLoginModal');
                 renderCanteenDishes();
                 renderCanteenOrders();
+                renderCanteenDeliveredOrders();
             } else {
                 alert('Please enter username and password');
             }
@@ -209,14 +199,58 @@
         }
 
         function orderDish(dishId) {
+            currentDishId = dishId;
             const dish = dishes.find(d => d.id === dishId);
+            document.getElementById('paymentDishInfo').textContent = `Ordering: ${dish.name} - ₹${dish.price.toFixed(2)}`;
+            document.getElementById('paymentModal').classList.remove('hidden');
+        }
+
+        function selectPaymentMethod(method) {
+            if (method === 'online') {
+                document.getElementById('onlinePaymentForm').classList.remove('hidden');
+            } else {
+                placeOrder('Pay on Delivery');
+            }
+        }
+
+        function processOnlinePayment() {
+            const cardNumber = document.getElementById('cardNumber').value;
+            const expiryDate = document.getElementById('expiryDate').value;
+            const cvv = document.getElementById('cvv').value;
+            if (cardNumber && expiryDate && cvv) {
+                placeOrder('Online Payment');
+            } else {
+                alert('Please fill in all payment details');
+            }
+        }
+
+        function placeOrder(paymentMethod) {
+            const dish = dishes.find(d => d.id === currentDishId);
             const orderId = `ORD${Date.now()}`;
-            orders.push({ id: orderId, dishId, student: currentUser.name, status: 'Pending' });
+            orders.push({ 
+                id: orderId, 
+                dishId: currentDishId, 
+                student: currentUser.name, 
+                status: 'Pending', 
+                paymentMethod 
+            });
             const popup = document.getElementById('orderPopup');
-            document.getElementById('popupMessage').textContent = `Order placed! Reference ID: ${orderId}`;
+            document.getElementById('popupMessage').textContent = `Order placed! Reference ID: ${orderId} | Payment: ${paymentMethod}`;
             popup.classList.remove('hidden');
+            closeModal('paymentModal');
             renderStudentOrders();
             renderCanteenOrders();
+        }
+
+        function markAsDelivered(orderId) {
+            const order = orders.find(o => o.id === orderId);
+            if (order) {
+                order.status = 'Delivered';
+                renderCanteenOrders();
+                renderCanteenDeliveredOrders();
+                renderStudentOrders();
+                renderStudentDeliveredOrders();
+            }
         }
 
         function renderDishes() {
@@ -224,7 +258,7 @@
             dishList.innerHTML = dishes.map(dish => `
                 <div class="dish-card bg-white p-4 rounded-lg shadow-lg">
                     <h4 class="text-lg font-semibold">${dish.name}</h4>
-                    <p class="text-gray-600">$${dish.price.toFixed(2)}</p>
+                    <p class="text-gray-600">₹${dish.price.toFixed(2)}</p>
                     <button onclick="orderDish(${dish.id})" class="btn mt-2 bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700">Order</button>
                 </div>
             `).join('');
@@ -235,7 +269,7 @@
             dishList.innerHTML = dishes.map(dish => `
                 <div class="dish-card bg-white p-4 rounded-lg shadow-lg">
                     <h4 class="text-lg font-semibold">${dish.name}</h4>
-                    <p class="text-gray-600">$${dish.price.toFixed(2)}</p>
+                    <p class="text-gray-600">₹${dish.price.toFixed(2)}</p>
                     <button onclick="removeDish(${dish.id})" class="btn mt-2 bg-red-600 text-white py-2 px-4 rounded-lg hover:bg-red-700">Remove</button>
                 </div>
             `).join('');
@@ -244,14 +278,33 @@
         function renderStudentOrders() {
             const orderList = document.getElementById('studentOrders');
             orderList.innerHTML = orders
-                .filter(order => order.student === currentUser.name)
+                .filter(order => order.student === currentUser.name && order.status === 'Pending')
                 .map(order => {
                     const dish = dishes.find(d => d.id === order.dishId);
                     return dish ? `
                         <div class="bg-white p-4 rounded-lg shadow-lg">
                             <p><strong>Order ID:</strong> ${order.id}</p>
                             <p><strong>Dish:</strong> ${dish.name}</p>
-                            <p><strong>Price:</strong> $${dish.price.toFixed(2)}</p>
+                            <p><strong>Price:</strong> ₹${dish.price.toFixed(2)}</p>
+                            <p><strong>Payment:</strong> ${order.paymentMethod}</p>
+                            <p><strong>Status:</strong> ${order.status}</p>
+                        </div>
+                    ` : '';
+                }).join('');
+        }
+
+        function renderStudentDeliveredOrders() {
+            const orderList = document.getElementById('studentDeliveredOrders');
+            orderList.innerHTML = orders
+                .filter(order => order.student === currentUser.name && order.status === 'Delivered')
+                .map(order => {
+                    const dish = dishes.find(d => d.id === order.dishId);
+                    return dish ? `
+                        <div class="bg-white p-4 rounded-lg shadow-lg">
+                            <p><strong>Order ID:</strong> ${order.id}</p>
+                            <p><strong>Dish:</strong> ${dish.name}</p>
+                            <p><strong>Price:</strong> ₹${dish.price.toFixed(2)}</p>
+                            <p><strong>Payment:</strong> ${order.paymentMethod}</p>
                             <p><strong>Status:</strong> ${order.status}</p>
                         </div>
                     ` : '';
@@ -260,17 +313,43 @@
 
         function renderCanteenOrders() {
             const orderList = document.getElementById('canteenOrders');
-            orderList.innerHTML = orders.map(order => {
-                const dish = dishes.find(d => d.id === order.dishId);
-                return dish ? `
-                    <div class="bg-white p-4 rounded-lg shadow-lg">
-                        <p><strong>Order ID:</strong> ${order.id}</p>
-                        <p><strong>Dish:</strong> ${dish.name}</p>
-                        <p><strong>Student:</strong> ${order.student}</p>
-                        <p><strong>Status:</strong> ${order.status}</p>
-                    </div>
-                ` : '';
-            }).join('');
+            orderList.innerHTML = orders
+                .filter(order => order.status === 'Pending')
+                .map(order => {
+                    const dish = dishes.find(d => d.id === order.dishId);
+                    return dish ? `
+                        <div class="bg-white p-4 rounded-lg shadow-lg">
+                            <p><strong>Order ID:</strong> ${order.id}</p>
+                            <p><strong>Dish:</strong> ${dish.name}</p>
+                            <p><strong>Student:</strong> ${order.student}</p>
+                            <p><strong>Payment:</strong> ${order.paymentMethod}</p>
+                            <p><strong>Status:</strong> ${order.status}</p>
+                            <button onclick="markAsDelivered('${order.id}')" class="btn mt-2 bg-green-600 text-white py-2 px-4 rounded-lg hover:bg-green-700">Mark as Delivered</button>
+                        </div>
+                    ` : '';
+                }).join('');
+        }
+
+        function renderCanteenDeliveredOrders() {
+            const orderList = document.getElementById('canteenDeliveredOrders');
+            orderList.innerHTML = orders
+                .filter(order => order.status === 'Delivered')
+                .map(order => {
+                    const dish = dishes.find(d => d.id === order.dishId);
+                    return dish ? `
+                        <div class="bg-white p-4 rounded-lg shadow-lg">
+                            <p><strong>Order ID:</strong> ${order.id}</p>
+                            <p><strong>Dish:</strong> ${dish.name}</p>
+                            <p><strong>Student:</strong> ${order.student}</p>
+                            <p><strong>Payment:</strong> ${order.paymentMethod}</p>
+                            <p><strong>Status:</strong> ${order.status}</p>
+                        </div>
+                    ` : '';
+                }).join('');
+        }
+    </script>
+</body>
+</html>
         }
     </script>
 </body>
